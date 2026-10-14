@@ -67,10 +67,11 @@ string InstallPayloadTypeToString(InstallPayloadType type) {
 }
 
 bool InstallPlan::operator==(const InstallPlan& that) const {
-  return ((is_resume == that.is_resume) &&
-          (download_url == that.download_url) && (payloads == that.payloads) &&
-          (source_slot == that.source_slot) &&
-          (target_slot == that.target_slot) && (partitions == that.partitions));
+  return (
+      (is_resume == that.is_resume) && (download_url == that.download_url) &&
+      (payloads == that.payloads) && (source_slot == that.source_slot) &&
+      (target_slot == that.target_slot) && (partitions == that.partitions) &&
+      (parallel_sideload == that.parallel_sideload));
 }
 
 bool InstallPlan::operator!=(const InstallPlan& that) const {
@@ -100,6 +101,7 @@ string InstallPlan::ToString() const {
           {"switch_slot_on_reboot", utils::ToString(switch_slot_on_reboot)},
           {"run_post_install", utils::ToString(run_post_install)},
           {"write_verity", utils::ToString(write_verity)},
+          {"parallel_sideload", utils::ToString(parallel_sideload)},
       },
       "\n"));
 

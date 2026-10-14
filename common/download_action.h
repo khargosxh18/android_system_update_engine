@@ -118,6 +118,11 @@ class DownloadAction : public InstallPlanAction, public HttpFetcherDelegate {
   // Start downloading the current payload using delta_performer.
   void StartDownloading();
 
+  // Sideload-only parallel apply path. Returns true when engaged, in which
+  // case the action is already complete.
+  bool TryParallelSideload();
+  bool OpenParallelSideloadFd(int* fd, uint64_t* size);
+
   // Pointer to the current payload in install_plan_.payloads.
   InstallPlan::Payload* payload_{nullptr};
 

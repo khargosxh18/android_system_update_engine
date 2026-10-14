@@ -334,6 +334,9 @@ bool UpdateAttempterAndroid::ApplyPayload(
   install_plan_.run_post_install =
       GetHeaderAsBool(headers[kPayloadPropertyRunPostInstall], true);
 
+  install_plan_.parallel_sideload =
+      GetHeaderAsBool(headers[kPayloadPropertyParallelSideload], true);
+
   // Skip writing verity if we're resuming and verity has already been written.
   install_plan_.write_verity = true;
   if (install_plan_.is_resume && prefs_->Exists(kPrefsVerityWritten)) {

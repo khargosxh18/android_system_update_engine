@@ -181,6 +181,11 @@ struct InstallPlan {
   // True if the update should write verity.
   // False otherwise.
   bool write_verity{true};
+  // True if the parallel apply path may be used for this update. Set from
+  // the ENABLE_PARALLEL_SIDELOAD header (default true); DownloadAction
+  // additionally requires recovery mode, a local payload URL and a non-resumed
+  // install, so this is never acted upon outside recovery sideload.
+  bool parallel_sideload{false};
 
   // The name of dynamic partitions not included in the payload. Only used
   // for partial updates.

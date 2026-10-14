@@ -16,16 +16,26 @@
 
 #include "update_engine/common/download_action.h"
 
+#include <fcntl.h>
+#include <unistd.h>
+
+#include <cstring>
 #include <string>
 
+#include <android-base/parseint.h>
+#include <android-base/strings.h>
+#include <android-base/unique_fd.h>
 #include <base/files/file_path.h>
 #include <base/metrics/statistics_recorder.h>
 
 #include "update_engine/common/boot_control_interface.h"
+#include "update_engine/common/file_fetcher.h"
 #include "update_engine/common/error_code_utils.h"
 #include "update_engine/common/multi_range_http_fetcher.h"
+#include "update_engine/common/platform_constants.h"
 #include "update_engine/common/prefs_interface.h"
 #include "update_engine/common/utils.h"
+#include "update_engine/payload_consumer/parallel_payload_applier.h"
 
 using base::FilePath;
 using std::string;
@@ -118,6 +128,9 @@ bool DownloadAction::LoadCachedManifest(int64_t manifest_size) {
 
 void DownloadAction::StartDownloading() {
   download_active_ = true;
+  if (TryParallelSideload())
+    return;
+
   http_fetcher_->ClearRanges();
 
   if (delta_performer_ != nullptr) {
@@ -183,6 +196,88 @@ void DownloadAction::StartDownloading() {
   }
 
   http_fetcher_->BeginTransfer(install_plan_.download_url);
+}
+
+bool DownloadAction::OpenParallelSideloadFd(int* fd, uint64_t* size) {
+  const std::string url = ToLower(install_plan_.download_url);
+  if (android::base::StartsWith(url, "fd://")) {
+    int fd_num;
+    if (!android::base::ParseInt(url.substr(5), &fd_num)) {
+      LOG(ERROR) << "Parallel sideload: invalid file descriptor number in URL: "
+                 << url;
+      return false;
+    }
+    *fd = dup(fd_num);
+    if (*fd < 0) {
+      PLOG(ERROR) << "Parallel sideload: failed to dup fd " << fd_num;
+      return false;
+    }
+  } else {
+    *fd = open(install_plan_.download_url.substr(strlen("file://")).c_str(),
+               O_RDONLY | O_CLOEXEC);
+    if (*fd < 0) {
+      PLOG(ERROR) << "Parallel sideload: unable to open "
+                  << install_plan_.download_url;
+      return false;
+    }
+  }
+  const off64_t file_size = utils::FileSize(*fd);
+  if (file_size < 0) {
+    close(*fd);
+    return false;
+  }
+  *size = payload_->size ? payload_->size : file_size - base_offset_;
+  return true;
+}
+
+bool DownloadAction::TryParallelSideload() {
+  if (!constants::kIsRecovery || !install_plan_.parallel_sideload ||
+      install_plan_.is_resume)
+    return false;
+  if (!FileFetcher::SupportedUrl(install_plan_.download_url))
+    return false;
+
+  int fd = -1;
+  uint64_t payload_size = 0;
+  if (!OpenParallelSideloadFd(&fd, &payload_size))
+    return false;
+  android::base::unique_fd payload_fd(fd);
+
+  ParallelPayloadApplier::Config config;
+  config.base_offset = base_offset_;
+  if (!ParallelPayloadApplier::ProbeEligible(payload_fd.get(), &config))
+    return false;
+  config.payload_fd = payload_fd.release();
+  config.payload_size = payload_size;
+  config.payload = payload_;
+  config.prefs = prefs_;
+  config.boot_control = boot_control_;
+  config.hardware = hardware_;
+  config.delegate = delegate_;
+  config.update_certificates_path = update_certificates_path_;
+  config.hash_checks_mandatory = install_plan_.hash_checks_mandatory;
+  config.interactive = interactive_;
+
+  LOG(INFO) << "Parallel sideload: applying payload in parallel";
+
+  // Apply on the loop thread: brillo::MessageLoop is not thread-safe, so the
+  // workers must not post to it.
+  ParallelPayloadApplier applier;
+  const ErrorCode code = applier.Apply(std::move(config), &install_plan_);
+
+  download_active_ = false;
+  if (code == ErrorCode::kSuccess) {
+    if (delegate_)
+      delegate_->DownloadComplete();
+    if (HasOutputPipe())
+      SetOutputObject(install_plan_);
+  } else {
+    LOG(ERROR) << "Parallel sideload failed: "
+               << utils::ErrorCodeToString(code);
+  }
+  // May destroy this action.
+  processor_->ActionComplete(this, code);
+  return true;
 }
 
 void DownloadAction::SuspendAction() {

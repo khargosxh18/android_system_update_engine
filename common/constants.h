@@ -194,6 +194,13 @@ static constexpr const auto& kPayloadVABCNone = "VABC_NONE";
 static constexpr const auto& kPayloadDisableVABC = "DISABLE_VABC";
 // Enable multi-threaded compression for VABC
 static constexpr const auto& kPayloadEnableThreading = "ENABLE_THREADING";
+
+// Disable the parallel sideload apply path in recovery by passing
+// "ENABLE_PARALLEL_SIDELOAD=0". The path only engages for full payloads read
+// from a local file or fd; everything else falls back to the sequential path.
+static constexpr const auto& kPayloadPropertyParallelSideload =
+    "ENABLE_PARALLEL_SIDELOAD";
+
 // Enable batched writes for VABC
 static constexpr const auto& kPayloadBatchedWrites = "BATCHED_WRITES";
 
